@@ -35,13 +35,15 @@ body{
   background:var(--bg);
   color:var(--text);
   min-height:100vh;
-  display:flex;justify-content:center;
-  padding:48px 20px 60px;
+  display:flex;justify-content:center;align-items:flex-start;
   -webkit-font-smoothing:antialiased;
   word-break:keep-all;
   overflow-wrap:break-word;
+  overflow:hidden;
 }
-.wrap{width:100%;max-width:520px}
+#scaleOuter{display:flex;justify-content:center;overflow:hidden}
+#scaleRoot{transform-origin:top center;padding:48px 20px 60px;box-sizing:border-box}
+.wrap{width:520px;max-width:520px}
 
 /* header */
 .top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:6px}
@@ -124,19 +126,11 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:18px 0 15px}
 
 .foot{text-align:center;font-size:12.5px;color:var(--faint);margin-top:10px}
 
-@media(max-width:520px){
-  body{padding:30px 14px 40px}
-  .top h1{font-size:22px}
-  .card{padding:16px}
-  .tbtn{height:46px;font-size:14.5px}
-  #finderInput{height:48px;font-size:16.5px}
-  .r-name{font-size:20px}
-  .r-status{font-size:16.5px}
-}
 @media (prefers-reduced-motion: reduce){*{transition:none !important}}
 </style>
 </head>
 <body>
+<div id="scaleOuter"><div id="scaleRoot">
 <div class="wrap">
   <div class="top">
     <h1>교사·학생 찾기</h1>
@@ -166,6 +160,7 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:18px 0 15px}
 
   <div class="foot">교사 63명 · 학생 313명 시간표 데이터 내장 · 2026학년도 2학기 기준</div>
 </div>
+</div></div>
 
 <script>
 // ── 교사/학생 시간표 데이터 ──────────────────────────
@@ -176,6 +171,15 @@ const PERIOD_TIMES = SCHOOL_TT.periodTimes;
 const PERIOD_DURATION_MIN = 50; // 각 교시 수업 시간(분) 가정치
 
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// 학번(예: 30101 = 3학년 1반 1번) → "3-1-01" 형태의 키로 변환
+function studentCodeToCid(q){
+  if(!/^\d{5}$/.test(q)) return null;
+  const grade = q[0];
+  const cls = parseInt(q.slice(1,3), 10);
+  const num = q.slice(3,5);
+  return `${grade}-${cls}-${num}`;
+}
 
 // 자동완성 목록은 데이터가 바뀌지 않으므로 페이지 로드 시 딱 한 번만 문자열로 만들어 재사용합니다.
 // (탭을 누를 때마다 innerHTML+=으로 한 명씩 이어붙이면 항목이 많을수록 급격히 느려지므로 미리 계산)
@@ -193,7 +197,7 @@ function switchFinderTab(tab){
   document.getElementById('finderTabT').classList.toggle('ag', tab==='t');
   document.getElementById('finderTabS').classList.toggle('ag', tab==='s');
   const input=document.getElementById('finderInput');
-  input.placeholder = tab==='t' ? '교사 이름 검색 (예: 김한슬)' : '학생 이름 또는 반-번호 검색 (예: 강인규, 3-1-01)';
+  input.placeholder = tab==='t' ? '교사 이름 검색 (예: 김한슬)' : '학생 이름 또는 학번 검색 (예: 강인규, 30101)';
   input.value='';
   document.getElementById('resultCard').classList.remove('show');
   const dl=document.getElementById('finderDatalist');
@@ -238,6 +242,10 @@ function onFinderInput(){
     renderFinderResult(`${match} 선생님`, TEACHERS_DATA[match], info);
   } else {
     let matches=Object.entries(STUDENTS_DATA).filter(([cid,d])=>cid===q);
+    if(!matches.length){
+      const codeCid = studentCodeToCid(q);
+      if(codeCid && STUDENTS_DATA[codeCid]) matches=[[codeCid, STUDENTS_DATA[codeCid]]];
+    }
     if(!matches.length) matches=Object.entries(STUDENTS_DATA).filter(([cid,d])=>d[0]===q);
     if(!matches.length) matches=Object.entries(STUDENTS_DATA).filter(([cid,d])=>d[0].includes(q));
     if(!matches.length){ box.innerHTML='<div class="r-empty">일치하는 학생을 찾을 수 없습니다.</div>'; return; }
@@ -294,6 +302,32 @@ switchFinderTab('t');
 updateFinderClock();
 setInterval(updateFinderClock, 30000);
 
+// ── 창 크기에 맞춰 전체 내용 배율 자동 조절 ─────────────
+// 디자인 기준 폭(520px 콘텐츠 + 좌우 여백)보다 창이 좁아지면 내용 전체를 비례해서 축소합니다.
+// (글자만 줄이는 반응형과 달리, 레이아웃 전체가 그대로 작아지는 방식입니다)
+const MIN_SCALE = 0.55;
+function applyContentScale(){
+  const root = document.getElementById('scaleRoot');
+  const outer = document.getElementById('scaleOuter');
+  if(!root || !outer) return;
+  root.style.transform = 'scale(1)';
+  const naturalW = root.scrollWidth;
+  const naturalH = root.scrollHeight;
+  const availW = window.innerWidth;
+  const availH = window.innerHeight;
+  let scale = Math.min(availW / naturalW, availH / naturalH, 1);
+  scale = Math.max(scale, MIN_SCALE);
+  root.style.transform = `scale(${scale})`;
+  outer.style.width = (naturalW * scale) + 'px';
+  outer.style.height = (naturalH * scale) + 'px';
+}
+window.addEventListener('resize', applyContentScale);
+window.addEventListener('load', applyContentScale);
+applyContentScale();
+// 검색 결과가 표시/숨김되며 내용 높이가 바뀔 때도 다시 계산.
+// (transform을 적용하는 #scaleRoot 자신이 아니라 자식인 .wrap을 관찰해 무한 루프를 피합니다)
+new MutationObserver(applyContentScale).observe(document.querySelector('.wrap'), {childList:true, subtree:true, attributes:true, attributeFilter:['class']});
+
 // 설치된 PWA(standalone) 창으로 열렸을 때, 내용물 크기에 맞춰 창 크기를 한 번 맞춰봅니다.
 // 브라우저 정책상 항상 허용되진 않는 '최선 시도'이며, 실패해도 조용히 무시됩니다.
 // (한 번 직접 창 크기를 조절해두면 이후엔 그 크기로 계속 열립니다 — 이게 더 확실한 방법입니다)
@@ -305,6 +339,17 @@ if (window.matchMedia('(display-mode: standalone)').matches) {
     }
   } catch (e) {}
 }
+
+// 창(화면) 크기를 줄이면 안의 내용 전체(글자·여백·아이콘 등)가 같은 비율로 함께 축소되도록 합니다.
+// 특정 지점에서 갑자기 레이아웃이 바뀌는 게 아니라, 실제 화면 배율(zoom)을 창 너비에 맞춰 부드럽게 조절합니다.
+const ZOOM_REF_WIDTH = 560; // 이 너비일 때 배율 100%
+const ZOOM_MIN = 0.55;      // 아무리 줄어도 최소 이 배율까지만
+function applyResponsiveZoom(){
+  const scale = Math.min(1, Math.max(ZOOM_MIN, window.innerWidth / ZOOM_REF_WIDTH));
+  document.documentElement.style.zoom = scale;
+}
+window.addEventListener('resize', applyResponsiveZoom);
+applyResponsiveZoom();
 
 
 </script>
