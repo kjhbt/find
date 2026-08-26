@@ -122,11 +122,8 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
 .call-classgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .call-classbtn{height:38px;border-radius:8px;border:1.5px solid var(--border);background:#FAFAFA;color:var(--text);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .call-classbtn.ag{background:var(--green-tint);color:var(--green-text);border-color:var(--green)}
-#callStudentInput,#callMessageInput{width:100%;height:44px;border:1.5px solid var(--border);border-radius:var(--r-in);padding:0 12px;font-size:15px;font-family:inherit;background:#fff;color:var(--text);outline:none}
-#callStudentInput:focus,#callMessageInput:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-tint)}
-.call-msgchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.call-msgchip{padding:5px 10px;border-radius:16px;border:1.5px solid var(--border);background:#FAFAFA;color:var(--sub);font-size:12px;font-family:inherit;cursor:pointer}
-.call-msgchip:hover{border-color:var(--border-strong);color:var(--text)}
+#callStudentInput{width:100%;height:44px;border:1.5px solid var(--border);border-radius:var(--r-in);padding:0 12px;font-size:15px;font-family:inherit;background:#fff;color:var(--text);outline:none}
+#callStudentInput:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-tint)}
 .call-send-btn{width:100%;height:48px;border-radius:var(--r-in);border:none;background:var(--green);color:#fff;font-family:inherit;font-size:15.5px;font-weight:700;cursor:pointer;margin-top:6px}
 .call-send-btn:disabled{background:var(--border);cursor:not-allowed}
 .call-status{font-size:13px;text-align:center;margin-top:10px;color:var(--sub)}
@@ -273,16 +270,6 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
         <label>학생 이름</label>
         <input id="callStudentInput" list="callStudentDatalist" placeholder="반을 먼저 선택하세요" autocomplete="off" disabled>
         <datalist id="callStudentDatalist"></datalist>
-      </div>
-      <div class="call-field">
-        <label>사유 (칠판에 함께 표시됩니다)</label>
-        <input id="callMessageInput" placeholder="예: 교무실로 와주세요" autocomplete="off">
-        <div class="call-msgchips">
-          <button class="call-msgchip" onclick="setCallMessage('교무실로 와주세요')">교무실로</button>
-          <button class="call-msgchip" onclick="setCallMessage('상담실로 와주세요')">상담실로</button>
-          <button class="call-msgchip" onclick="setCallMessage('보건실로 와주세요')">보건실로</button>
-          <button class="call-msgchip" onclick="setCallMessage('행정실로 와주세요')">행정실로</button>
-        </div>
       </div>
       <button class="call-send-btn" id="callSendBtn" onclick="submitCall()">호출 보내기</button>
       <div class="call-status" id="callStatus"></div>
@@ -566,9 +553,7 @@ function selectCallClass(n){
     .filter(([cid]) => cid.startsWith(cidPrefix))
     .map(([cid,d]) => `<option value="${esc(d[0])}">`).join('');
 }
-function setCallMessage(msg){
-  document.getElementById('callMessageInput').value = msg;
-}
+const CALL_FIXED_MESSAGE = '교무실로 오세요.';
 function submitCall(){
   const statusEl = document.getElementById('callStatus');
   if(!FIREBASE_READY){
@@ -587,14 +572,12 @@ function submitCall(){
     statusEl.className = 'call-status err';
     return;
   }
-  const message = document.getElementById('callMessageInput').value.trim();
   const btn = document.getElementById('callSendBtn');
   btn.disabled = true;
-  sendCallToDb(callSelectedClass, student, message).then(() => {
+  sendCallToDb(callSelectedClass, student, CALL_FIXED_MESSAGE).then(() => {
     statusEl.textContent = `✓ ${callSelectedClass}반 ${student} 학생에게 호출을 보냈습니다.`;
     statusEl.className = 'call-status ok';
     document.getElementById('callStudentInput').value = '';
-    document.getElementById('callMessageInput').value = '';
     btn.disabled = false;
   }).catch(() => {
     statusEl.textContent = '전송에 실패했습니다. 네트워크 상태를 확인해주세요.';
