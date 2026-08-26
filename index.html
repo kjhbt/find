@@ -157,6 +157,19 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
 }
 .call-banner-confirm:hover{background:#EEF4EF}
 
+/* 전자칠판 대기 화면 (잠금 모드) */
+#boardIdleScreen{
+  display:none; position:fixed; inset:0; z-index:50; background:#fff;
+  flex-direction:column; align-items:center; justify-content:center; gap:18px;
+}
+#boardIdleScreen.show{display:flex}
+.board-idle-label{font-size:clamp(36px,8vw,100px);font-weight:800;color:var(--text);letter-spacing:-.01em}
+.board-idle-clock{font-size:clamp(16px,2.6vw,30px);color:var(--sub);font-variant-numeric:tabular-nums;font-weight:600}
+.board-idle-gear{
+  position:fixed;bottom:18px;right:18px;width:38px;height:38px;border-radius:50%;border:none;
+  background:rgba(0,0,0,.035);color:rgba(0,0,0,.22);font-size:15px;cursor:pointer;
+}
+
 @media(max-width:600px){
   .wrap{width:100%}
   .classgrid{grid-template-columns:repeat(4,1fr)}
@@ -168,6 +181,11 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
 </head>
 <body>
 <div id="callBanners"></div>
+<div id="boardIdleScreen">
+  <div class="board-idle-label" id="boardIdleLabel"></div>
+  <div class="board-idle-clock" id="boardIdleClock"></div>
+  <button class="board-idle-gear" onclick="promptBoardPin()" title="설정">⚙</button>
+</div>
 <div id="scaleOuter"><div id="scaleRoot">
 <div class="wrap">
   <div class="top">
@@ -407,6 +425,24 @@ function selectClass(n){
   const schedule = getClassSchedule(n);
   const info = getCurrentPeriodInfo();
   renderClassResult(n, schedule, info);
+  watchClassForCalls(n); // 지금 보고 있는 반의 호출을 실시간으로 받습니다 (잠금 여부 무관)
+}
+
+// ── 현재 화면에 열려있는 반의 호출을 실시간으로 수신 ──────
+// 잠금(전자칠판) 모드든 아니든, 지금 화면에 보이는 반으로 온 호출은 항상 뜹니다.
+// 다른 반으로 바꿔서 보면 이전 반 수신은 자동으로 끊고 새 반으로 다시 연결합니다.
+let currentListenedClass = null;
+function watchClassForCalls(n){
+  if(n === currentListenedClass) return;
+  if(currentListenedClass) stopListeningForCalls(currentListenedClass);
+  const target = (n === '특별실') ? null : n;
+  currentListenedClass = target;
+  if(target){
+    listenForCalls(target,
+      (callId, data) => renderCallBanner(target, callId, data),
+      (callId) => removeCallBannerLocal(callId)
+    );
+  }
 }
 function renderClassResult(n, schedule, info){
   const box = document.getElementById('classResult');
@@ -473,13 +509,16 @@ function sendCallToDb(classNum, student, message){
   if(!callDb) return Promise.reject(new Error('NOT_CONFIGURED'));
   return callDb.ref('calls/'+classNum).push({ student, message: message||'', ts: Date.now() });
 }
-function listenForCalls(classNum, onCall){
+function listenForCalls(classNum, onAdd, onRemove){
   if(!callDb) return;
-  callDb.ref('calls/'+classNum).on('child_added', (snap) => onCall(snap.key, snap.val()));
+  const ref = callDb.ref('calls/'+classNum);
+  ref.on('child_added', (snap) => onAdd(snap.key, snap.val()));
+  if(onRemove) ref.on('child_removed', (snap) => onRemove(snap.key));
 }
 function stopListeningForCalls(classNum){
   if(!callDb) return;
   callDb.ref('calls/'+classNum).off('child_added');
+  callDb.ref('calls/'+classNum).off('child_removed');
 }
 function confirmCallInDb(classNum, callId){
   if(!callDb) return;
@@ -565,8 +604,35 @@ function submitCall(){
 
 // ── 전자칠판 설정 (수신용) ────────────────────────────
 const BOARD_KEY = 'boardClassNum';
+const BOARD_PIN = '2580'; // 학생이 임의로 설정을 바꾸지 못하도록 하는 PIN. 필요시 이 값을 바꾸세요.
 function getBoardClass(){
   return localStorage.getItem(BOARD_KEY);
+}
+function promptBoardPin(){
+  const entered = prompt('전자칠판 설정을 변경하려면 PIN을 입력하세요.');
+  if(entered === null) return;
+  if(entered !== BOARD_PIN){ alert('PIN이 올바르지 않습니다.'); return; }
+  openBoardSettings();
+}
+// 잠금 모드 적용: 반이 설정되어 있으면 전체 화면을 대기화면으로 바꾸고,
+// 시간표·검색·호출보내기 등 다른 화면은 전부 가립니다.
+function applyLockState(){
+  const cur = getBoardClass();
+  const locked = !!cur;
+  document.getElementById('scaleOuter').style.display = locked ? 'none' : '';
+  document.getElementById('boardIdleScreen').classList.toggle('show', locked);
+  if(locked){
+    document.getElementById('boardIdleLabel').textContent = `3학년 ${cur}반`;
+    updateBoardIdleClock();
+  }
+}
+function updateBoardIdleClock(){
+  const el = document.getElementById('boardIdleClock');
+  if(!el) return;
+  const now = new Date();
+  const WD=['일','월','화','수','목','금','토'];
+  const hh=String(now.getHours()).padStart(2,'0'), mm=String(now.getMinutes()).padStart(2,'0');
+  el.textContent = `${now.getMonth()+1}.${String(now.getDate()).padStart(2,'0')} (${WD[now.getDay()]}) ${hh}:${mm}`;
 }
 function openBoardSettings(){
   if(!document.getElementById('boardClassGrid').dataset.built){
@@ -576,7 +642,7 @@ function openBoardSettings(){
   const cur = getBoardClass();
   document.querySelectorAll('#boardClassGrid .call-classbtn').forEach(b=>b.classList.remove('ag'));
   if(cur) document.getElementById('boardClassGrid_'+cur).classList.add('ag');
-  document.getElementById('boardStatus').textContent = cur ? `현재 이 화면은 ${cur}반 전자칠판으로 설정되어 있습니다.` : '설정된 반이 없습니다.';
+  document.getElementById('boardStatus').textContent = cur ? `현재 이 화면은 ${cur}반 전자칠판(잠금)으로 설정되어 있습니다.` : '설정된 반이 없습니다. (잠금 없이 전체 화면이 보입니다)';
   document.getElementById('boardStatus').className = 'call-status';
   document.getElementById('boardModal').classList.add('show');
 }
@@ -584,25 +650,24 @@ function closeBoardSettings(){
   document.getElementById('boardModal').classList.remove('show');
 }
 function saveBoardSetting(n){
-  const prev = getBoardClass();
-  if(prev && Number(prev) !== n) stopListeningForCalls(prev);
   localStorage.setItem(BOARD_KEY, String(n));
   document.querySelectorAll('#boardClassGrid .call-classbtn').forEach(b=>b.classList.remove('ag'));
-  document.getElementById('boardClassGrid_'+n).classList.add('ag');
-  document.getElementById('boardStatus').textContent = `이 화면을 ${n}반 전자칠판으로 설정했습니다.`;
+  const btn = document.getElementById('boardClassGrid_'+n);
+  if(btn) btn.classList.add('ag');
+  document.getElementById('boardStatus').textContent = `이 화면을 ${n}반 전자칠판(잠금)으로 설정했습니다. 창을 닫으면 대기 화면으로 바뀝니다.`;
   document.getElementById('boardStatus').className = 'call-status ok';
   updateBoardBadge();
-  initBoardListener();
-  selectClass(n);
+  selectClass(n); // 시간표 계산 + 이 반의 호출 실시간 수신 시작 (화면 자체는 곧이어 잠금 화면으로 가려짐)
+  applyLockState();
 }
 function clearBoardSetting(){
   const prev = getBoardClass();
-  if(prev) stopListeningForCalls(prev);
   localStorage.removeItem(BOARD_KEY);
   document.querySelectorAll('#boardClassGrid .call-classbtn').forEach(b=>b.classList.remove('ag'));
-  document.getElementById('boardStatus').textContent = '전자칠판 설정을 해제했습니다.';
+  document.getElementById('boardStatus').textContent = '전자칠판 설정을 해제했습니다. 창을 닫으면 전체 화면이 다시 보입니다.';
   document.getElementById('boardStatus').className = 'call-status';
   updateBoardBadge();
+  applyLockState();
 }
 function updateBoardBadge(){
   const cur = getBoardClass();
@@ -614,13 +679,12 @@ function updateBoardBadge(){
     badge.style.display = 'none';
   }
 }
-function initBoardListener(){
-  const cur = getBoardClass();
-  if(!cur || !FIREBASE_READY) return;
-  listenForCalls(cur, (callId, data) => renderCallBanner(cur, callId, data));
-}
 
 // ── 호출 배너 표시 ───────────────────────────────────
+function removeCallBannerLocal(callId){
+  const el = document.getElementById('callbanner_'+callId);
+  if(el) el.remove();
+}
 function renderCallBanner(classNum, callId, data){
   const container = document.getElementById('callBanners');
   if(document.getElementById('callbanner_'+callId)) return; // 중복 방지
@@ -783,6 +847,7 @@ function applyContentScale(){
   const root = document.getElementById('scaleRoot');
   const outer = document.getElementById('scaleOuter');
   if(!root || !outer) return;
+  if(getBoardClass()) return; // 잠금(대기 화면) 상태에서는 계산할 필요 없음
   root.style.transform = 'scale(1)';
   const naturalW = root.scrollWidth, naturalH = root.scrollHeight;
   let scale = Math.min(window.innerWidth/naturalW, window.innerHeight/naturalH, 1);
@@ -801,13 +866,15 @@ setInterval(updateClock, 30000);
 applyContentScale();
 
 // ── 전자칠판 모드 초기화: 이 화면이 특정 반으로 설정되어 있으면
-// 그 반 시간표를 자동으로 열고, 호출을 실시간으로 수신 대기합니다.
+// 시간표·검색 등 모든 화면을 잠그고 대기 화면(반 이름 + 시계)만 보여주며,
+// 호출을 실시간으로 수신 대기합니다.
 updateBoardBadge();
 const _boardCls = getBoardClass();
 if(_boardCls){
-  selectClass(Number(_boardCls));
-  initBoardListener();
+  selectClass(Number(_boardCls)); // 시간표 계산 + 이 반의 호출 실시간 수신 시작
 }
+applyLockState();
+setInterval(updateBoardIdleClock, 30000);
 
 // ── 오프라인 캐싱(서비스워커) 등록 ──────────────────
 // https(또는 localhost)로 열렸을 때만 시도합니다. 성공하면 이후엔 인터넷이 안 되어도 앱이 열립니다.
