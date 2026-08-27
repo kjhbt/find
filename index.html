@@ -124,6 +124,8 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
 .call-classbtn.ag{background:var(--green-tint);color:var(--green-text);border-color:var(--green)}
 #callStudentInput{width:100%;height:44px;border:1.5px solid var(--border);border-radius:var(--r-in);padding:0 12px;font-size:15px;font-family:inherit;background:#fff;color:var(--text);outline:none}
 #callStudentInput:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-tint)}
+#callMessageInput{width:100%;height:44px;border:1.5px solid var(--border);border-radius:var(--r-in);padding:0 12px;font-size:15px;font-family:inherit;background:#fff;color:var(--text);outline:none}
+#callMessageInput:focus{border-color:var(--green);box-shadow:0 0 0 3px var(--green-tint)}
 .call-send-btn{width:100%;height:48px;border-radius:var(--r-in);border:none;background:var(--green);color:#fff;font-family:inherit;font-size:15.5px;font-weight:700;cursor:pointer;margin-top:6px}
 .call-send-btn:disabled{background:var(--border);cursor:not-allowed}
 .call-status{font-size:13px;text-align:center;margin-top:10px;color:var(--sub)}
@@ -270,6 +272,10 @@ hr.div{border:none;border-top:1.5px solid var(--border);margin:16px 0 14px}
         <label>학생 이름</label>
         <input id="callStudentInput" list="callStudentDatalist" placeholder="반을 먼저 선택하세요" autocomplete="off" disabled>
         <datalist id="callStudentDatalist"></datalist>
+      </div>
+      <div class="call-field">
+        <label>호출 문구 (자유롭게 고쳐 쓸 수 있어요)</label>
+        <input id="callMessageInput" autocomplete="off">
       </div>
       <button class="call-send-btn" id="callSendBtn" onclick="submitCall()">호출 보내기</button>
       <div class="call-status" id="callStatus"></div>
@@ -532,6 +538,7 @@ function openCallModal(){
     buildMiniClassGrid('callClassGrid', selectCallClass);
     document.getElementById('callClassGrid').dataset.built = '1';
   }
+  document.getElementById('callMessageInput').value = CALL_DEFAULT_MESSAGE;
   document.getElementById('callStatus').textContent = FIREBASE_READY ? '' : '⚠ 아직 호출 기능이 설정되지 않았습니다. (관리자에게 문의)';
   document.getElementById('callStatus').className = 'call-status' + (FIREBASE_READY ? '' : ' err');
   document.getElementById('callModal').classList.add('show');
@@ -553,7 +560,7 @@ function selectCallClass(n){
     .filter(([cid]) => cid.startsWith(cidPrefix))
     .map(([cid,d]) => `<option value="${esc(d[0])}">`).join('');
 }
-const CALL_FIXED_MESSAGE = '교무실로 오세요.';
+const CALL_DEFAULT_MESSAGE = '지금 바로 교무실로 오세요.';
 function submitCall(){
   const statusEl = document.getElementById('callStatus');
   if(!FIREBASE_READY){
@@ -572,12 +579,14 @@ function submitCall(){
     statusEl.className = 'call-status err';
     return;
   }
+  const message = document.getElementById('callMessageInput').value.trim() || CALL_DEFAULT_MESSAGE;
   const btn = document.getElementById('callSendBtn');
   btn.disabled = true;
-  sendCallToDb(callSelectedClass, student, CALL_FIXED_MESSAGE).then(() => {
+  sendCallToDb(callSelectedClass, student, message).then(() => {
     statusEl.textContent = `✓ ${callSelectedClass}반 ${student} 학생에게 호출을 보냈습니다.`;
     statusEl.className = 'call-status ok';
     document.getElementById('callStudentInput').value = '';
+    document.getElementById('callMessageInput').value = CALL_DEFAULT_MESSAGE;
     btn.disabled = false;
   }).catch(() => {
     statusEl.textContent = '전송에 실패했습니다. 네트워크 상태를 확인해주세요.';
